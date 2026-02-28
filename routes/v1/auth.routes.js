@@ -1,10 +1,40 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
+
 const User = require('../../models/Users');
+const {signAccessToken, verifyAccessToken} = require('../../utils/jwt');
 
 router.post('/login', (req, res) => {
-    res.json({ message: 'Login route' });
+    try {
+        const credentials = req.body;
+        User.findOne({ email: credentials.email }).then(async (user) => {
+            if (!user) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+            const isMatch = await bcrypt.compare(credentials.passwordHash, user.passwordHash);
+            if (!isMatch) {
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
+
+            //issue token
+            const accessToken = signAccessToken(user);
+    
+        
+            res.cookie('authorization', accessToken, {
+                httpOnly: true,
+                secure: true,
+                sameSite: 'Strict',
+                maxAge: 24 * 60 * 60 * 1000 // 1 day
+            });
+            res.status(200).json({ message: 'Login successful', 
+                                   user: { id: user._id, fullName: user.fullName, email: user.email }
+             });
+        });
+
+    } catch (error) {
+        
+    }
 });
 
 router.post('/register', async (req, res) => {
