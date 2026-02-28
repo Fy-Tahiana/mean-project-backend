@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const routes = require('./routes');
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 const app = express();
@@ -19,5 +20,9 @@ mongoose.connect(process.env.MONGO_URI).
 // Routes
 
 app.use('/', routes);
+
+app.use(cookieParser());
+
+app.use("/uploads", express.static("uploads"));
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
