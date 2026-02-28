@@ -7,12 +7,14 @@ const orderSchema = new mongoose.Schema({
     items: [{
         productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
         qty: { type: Number, required: true },
-        priceSnapshot: { type: Number, required: true }
+        priceSnapshot: { type: Number },
+        path: [{ type: String }]
     }],
     total: { type: Number, required: true },  
     status: { type: String, enum: ['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'DELIVERED', 'CANCELLED'], default: 'PENDING' },
     address: { type: String, required: true },
     phone: { type: String, required: true },
+    shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Order', orderSchema);
