@@ -28,6 +28,8 @@ module.exports = () => {
           if(!req.user.shops.includes(shopId.toString())){
           return res.status(403).json({ error: 'Forbidden: not the owner of the shop' });
         }
+        next();
+        return;
       }
         shopId = req.query.shopId;
         const shop = await Shop.findById(shopId).lean();

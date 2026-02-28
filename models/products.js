@@ -8,7 +8,7 @@ const productSchema = new mongoose.Schema({
     stock: { type: Number, required: true, min: 0 },
     description: { type: String, default: '', required: false },
     images: [{ type: String }],
-    status: { type: String, enum: ['active', 'out_of_stock', 'disabled'], default: 'active' }
+    status: { type: String, enum: ['ACTIVE', 'OUT_OF_STOCK', 'DISABLED'], default: 'ACTIVE' }
 }, { timestamps: true });
 
 const Product = mongoose.model('Product', productSchema);

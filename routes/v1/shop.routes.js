@@ -36,10 +36,23 @@ router.post('/', auth, requireRole('SHOP'), upload.fields([{ name: 'logo', maxCo
                 website: req.body.website
             }
         });
-        await shop.save();
+        let newShop =await shop.save();
+
+        //update cookies of the user to include the new shopId if role is SHOP
+        if(req.user.role.toUpperCase() === 'SHOP'){
+            const updatedShops = [...req.user.shops, newShop._id.toString()];
+            const accessToken = require('../../utils/jwt').signAccessToken(req.user, updatedShops);
+            res.cookie('authorization', accessToken, {
+                httpOnly: true,
+                secure: true,
+                sameSite: 'Strict',
+                maxAge: 24 * 60 * 60 * 1000 // 1 day
+            });
+        }
         res.status(201).json({ message: 'Shop created successfully', shop });
         
     } catch (error) {
+        console.error('Error creating shop:', error);
         //delete uploaded files in case of error
         if (req.files.logo) {
             req.files.logo.forEach(file => {
