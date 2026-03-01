@@ -1,3 +1,4 @@
+const shops = require('../models/shops');
 const {verifyAccessToken} = require('../utils/jwt');
 
 module.exports = function (req, res, next) {
@@ -22,7 +23,8 @@ module.exports = function (req, res, next) {
         const payload = verifyAccessToken(token);
         req.user = {
             id: payload.sub,
-            role: payload.role
+            role: payload.role,
+            shops: payload.shops || []
         };
         next();
     } catch (error) {

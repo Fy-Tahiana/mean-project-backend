@@ -18,9 +18,15 @@ mongoose.connect(process.env.MONGO_URI).
     .catch(err => console.log(err));
 
 // Routes
+app.use((req, res, next) => {
+  console.log(`Incoming request: ${req.method} ${req.url}`);
+  next();
+});
 
 app.use('/', routes);
 
 app.use(cookieParser());
+
+app.use("/uploads", express.static("uploads"));
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

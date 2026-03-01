@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 
-const User = require('../../models/Users');
+const User = require('../../models/users');
 const {signAccessToken, verifyAccessToken} = require('../../utils/jwt');
 
 router.post('/login', (req, res) => {
@@ -18,7 +18,13 @@ router.post('/login', (req, res) => {
             }
 
             //issue token
-            const accessToken = signAccessToken(user);
+            //fetch shops of the user if role is SHOP
+            let shops = [];
+            if (user.role.toUpperCase() === 'SHOP') {
+                shops = await require('../../models/shops').find({ ownerUserId: user._id }).select('_id').lean();
+                shops = shops.map(s => s._id.toString());
+            }
+            const accessToken = signAccessToken(user, shops);
     
         
             res.cookie('authorization', accessToken, {
@@ -28,7 +34,7 @@ router.post('/login', (req, res) => {
                 maxAge: 24 * 60 * 60 * 1000 // 1 day
             });
             res.status(200).json({ message: 'Login successful', 
-                                   user: { id: user._id, fullName: user.fullName, email: user.email }
+                                   user: { id: user._id, fullName: user.fullName, email: user.email, shops: shops }
              });
         });
 
