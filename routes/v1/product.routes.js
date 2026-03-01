@@ -9,6 +9,7 @@ const requireOwner = require('../../middlewares/requireOwner');
 module.exports = router;
 const mongoose = require('mongoose');
 const Product = require('../../models/products');
+const Order = require('../../models/orders');
 
 // CREATE Product ✅
 
@@ -188,5 +189,52 @@ router.get('/:id', auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), 
         res.status(500).json({ error: 'Failed to fetch product', details: error.message });
     }
 });
+
+router.get('/top', auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), async (req, res) => {
+  try {
+
+    //find top 5 products based on total sales (quantity sold) in the last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const topProducts = await Order.aggregate([
+      { $match: {
+         createdAt: { $gte: thirtyDaysAgo },
+         status: {$in:['CONFIRMED', 'PREPARING', 'READY', 'DELIVERED']}
+        } 
+      },
+      { $unwind: "$items" },
+      { $group: { _id: "$items.productId", 
+        totalSold: { $sum: "$items.qty" },
+        totalRevenue: { $sum: { $multiply: ["$items.qty", "$items.priceSnapshot"] } }
+        } 
+      },
+      { $sort: { totalSold: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: "products",
+          localField: "_id",
+          foreignField: "_id",
+          as: "product"
+        }
+      },
+      { $unwind: "$product" },
+      { $project: {
+          _id: 0,
+          productId: "$_id",
+          name: "$product.name",
+          price: "$product.price",
+          images: "$product.images",
+          totalSold: 1,
+          totalRevenue: 1
+        } 
+      }
+    ]);
+    res.status(200).json(topProducts);
+  }catch (error) {
+    res.status(500).json({ error: 'Failed to fetch top products', details: error.message });
+  }
+}
+);
 
 module.exports = router;
