@@ -117,12 +117,11 @@ router.delete('/:id', auth, requireRole('SHOP'), requireOwner(), async (req, res
 
 
 //get all product by query products?status=active&categoryId=&shopId=&q=&min=&max=&sort=&page=
-router.get('/', async (req, res) => {
+router.get('/',auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), async (req, res) => {
     try {
         const filter = {};
         let sortObj = {};
         filter.status = 'ACTIVE';
-        filter.shopId = { $in: await Shop.find({ status: 'ACTIVE' }).distinct('_id') }; // only products from active shops
         if (req.query.status) {
             filter.status = req.query.status.toUpperCase();
         }
@@ -167,7 +166,7 @@ router.get('/', async (req, res) => {
 
         //fetch products based on filter
 
-        const products = await Product.find(filter).sort(sortObj).skip(skip).limit(limit).populate('shopId', 'name status').populate('categoryId', 'name');
+        const products = await Product.find(filter).sort(sortObj).skip(skip).limit(limit).populate('shopId', 'name').populate('categoryId', 'name');
         //return total pages
         const totalProducts = await Product.countDocuments(filter);
         const totalPages = Math.ceil(totalProducts / limit);
@@ -177,13 +176,13 @@ router.get('/', async (req, res) => {
     }
 });
 
-router.get('/top', async (req, res) => {
+router.get('/top', auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), async (req, res) => {
   try {
 
     //find top 5 products based on total sales (quantity sold) in the last 30 days
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    let topProducts = await Order.aggregate([
+    const topProducts = await Order.aggregate([
       { $match: {
          createdAt: { $gte: thirtyDaysAgo },
          status: {$in:['CONFIRMED', 'PREPARING', 'READY', 'DELIVERED']}
@@ -206,22 +205,10 @@ router.get('/top', async (req, res) => {
         }
       },
       { $unwind: "$product" },
-      {
-        $lookup: {
-          from: "shops",
-          localField: "product.shopId",
-          foreignField: "_id",
-          as: "shop"
-        }
-      },
-      { $unwind: "$shop" },
       { $project: {
           _id: 0,
           productId: "$_id",
           name: "$product.name",
-          stock: "$product.stock",
-          status: "$product.status",
-          shop: "$shop",
           price: "$product.price",
           images: "$product.images",
           totalSold: 1,
@@ -229,9 +216,6 @@ router.get('/top', async (req, res) => {
         } 
       }
     ]);
-
-    //filter out products that are not active
-     topProducts = topProducts.filter(p => p.status === 'ACTIVE' && p.shop.status === 'ACTIVE');    
     res.status(200).json(topProducts);
   }catch (error) {
     res.status(500).json({ error: 'Failed to fetch top products', details: error.message });
