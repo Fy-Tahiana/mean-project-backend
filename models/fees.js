@@ -9,10 +9,4 @@ const feesSchema = new mongoose.Schema({
     status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE' },
 }, { timestamps: true });
 
-// Guarantee at most one ACTIVE fee
-feesSchema.index(
-  { status: 1 },
-  { unique: true, partialFilterExpression: { status: 'ACTIVE' } }
-);
-
 module.exports = mongoose.model('Fees', feesSchema);

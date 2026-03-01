@@ -25,8 +25,6 @@ module.exports = function (req, res, next) {
     }
 
     if (!token) {
-        //give guest token with role GUEST
-
         return res.status(401).json({ error: 'Access token missing' });
     }
 
