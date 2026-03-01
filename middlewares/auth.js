@@ -25,6 +25,8 @@ module.exports = function (req, res, next) {
     }
 
     if (!token) {
+        //give guest token with role GUEST
+
         return res.status(401).json({ error: 'Access token missing' });
     }
 
@@ -33,6 +35,7 @@ module.exports = function (req, res, next) {
         req.user = {
             id: payload.sub,
             role: payload.role,
+            fullName: payload.fullName,
             shops: payload.shops || []
         };
         next();

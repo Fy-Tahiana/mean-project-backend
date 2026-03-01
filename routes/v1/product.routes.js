@@ -6,19 +6,63 @@ const Shop = require('../../models/shops');
 const Category = require('../../models/categories');
 const requireOwner = require('../../middlewares/requireOwner');
 const requireOwnerShop = require('../../middlewares/requireOwnerShop');
+const upload = require('../../middlewares/upload');
 
 module.exports = router;
 const mongoose = require('mongoose');
 const Product = require('../../models/products');
 const Order = require('../../models/orders');
 
+const normalizeStoredImagePath = (value) => {
+  if (!value) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    try {
+      const pathname = new URL(raw).pathname || '';
+      return pathname.replace(/^\/+/, '');
+    } catch {
+      return raw.replace(/^https?:\/\/[^/]+\//i, '').replace(/^\/+/, '');
+    }
+  }
+
+  return raw.replace(/^\/+/, '');
+};
+
+const parseImagesArray = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(normalizeStoredImagePath).filter(Boolean);
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(normalizeStoredImagePath).filter(Boolean) : [];
+  } catch {
+    return [value].map(normalizeStoredImagePath).filter(Boolean);
+  }
+};
+
+const toProductImageUrl = (file) => `products/${file.filename}`;
+
+const coerceProductBody = (body) => {
+  const next = { ...body };
+  if (typeof next.price !== 'undefined') next.price = Number(next.price);
+  if (typeof next.stock !== 'undefined') next.stock = Number(next.stock);
+  if (typeof next.status === 'string') next.status = String(next.status).toUpperCase();
+  return next;
+};
+
 // CREATE Product ✅
 
-router.post('/', auth, requireRole('SHOP'), requireOwner(), async (req, res) => {
+router.post('/', auth, requireRole('SHOP'), upload.array('images', 8), requireOwner(), async (req, res) => {
   try {
-    const { shopId, name, price, stock, images, status, categoryId, description  } = req.body;
+    const body = coerceProductBody(req.body);
+    const uploadedImages = (req.files || []).map(toProductImageUrl);
+    const fallbackImages = parseImagesArray(body.images);
+    const images = uploadedImages.length ? uploadedImages : fallbackImages;
+    const { shopId, name, price, stock, status, categoryId, description  } = body;
 
-    console.log("Creating product with data:", req.body);
+    console.log("Creating product with data:", body);
     console.log("User:", req.user);
 
     //Find the shop owned by the user
@@ -72,8 +116,10 @@ router.post('/', auth, requireRole('SHOP'), requireOwner(), async (req, res) => 
 
 // UPDATE Product for a shop ✅
 
-router.put('/:id', auth, requireRole('SHOP'), requireOwner(), async (req, res) => {
+router.put('/:id', auth, requireRole('SHOP'), upload.array('images', 8), requireOwner(), async (req, res) => {
   try {
+    const body = coerceProductBody(req.body);
+    const uploadedImages = (req.files || []).map(toProductImageUrl);
 
     // Find the product
     const product = await Product.findById(req.params.id);
@@ -81,9 +127,24 @@ router.put('/:id', auth, requireRole('SHOP'), requireOwner(), async (req, res) =
       throw new Error("Product not found");
     }
 
+    const retainedImages = parseImagesArray(body.retainedImagesJson || body.retainedImages);
+    const hasImageUpdate =
+      uploadedImages.length > 0 ||
+      typeof body.retainedImagesJson !== 'undefined' ||
+      typeof body.retainedImages !== 'undefined';
+
+    const updateBody = { ...body };
+    delete updateBody.retainedImagesJson;
+    delete updateBody.retainedImages;
+
+    // Replace-set strategy for images on update.
+    if (hasImageUpdate) {
+      updateBody.images = [...retainedImages, ...uploadedImages];
+    }
+
     const updatedProduct = await Product.findOneAndUpdate(
       { _id: req.params.id },
-      req.body,
+      updateBody,
       { new: true }
     );
 
@@ -117,11 +178,12 @@ router.delete('/:id', auth, requireRole('SHOP'), requireOwner(), async (req, res
 
 
 //get all product by query products?status=active&categoryId=&shopId=&q=&min=&max=&sort=&page=
-router.get('/',auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), async (req, res) => {
+router.get('/', async (req, res) => {
     try {
         const filter = {};
         let sortObj = {};
         filter.status = 'ACTIVE';
+        filter.shopId = { $in: await Shop.find({ status: 'ACTIVE' }).distinct('_id') }; // only products from active shops
         if (req.query.status) {
             filter.status = req.query.status.toUpperCase();
         }
@@ -166,7 +228,7 @@ router.get('/',auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), asyn
 
         //fetch products based on filter
 
-        const products = await Product.find(filter).sort(sortObj).skip(skip).limit(limit);
+        const products = await Product.find(filter).sort(sortObj).skip(skip).limit(limit).populate('shopId', 'name status').populate('categoryId', 'name');
         //return total pages
         const totalProducts = await Product.countDocuments(filter);
         const totalPages = Math.ceil(totalProducts / limit);
@@ -176,28 +238,13 @@ router.get('/',auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), asyn
     }
 });
 
-router.get('/:id', auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), async (req, res) => {
-    try {
-        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-            return res.status(400).json({ error: 'Invalid product ID' });
-        }
-        const product = await Product.findById(req.params.id);
-        if (!product) {
-            return res.status(404).json({ error: 'Product not found' });
-        }
-        res.status(200).json(product);
-    }catch (error) {
-        res.status(500).json({ error: 'Failed to fetch product', details: error.message });
-    }
-});
-
-router.get('/top', auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), async (req, res) => {
+router.get('/top', async (req, res) => {
   try {
 
     //find top 5 products based on total sales (quantity sold) in the last 30 days
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const topProducts = await Order.aggregate([
+    let topProducts = await Order.aggregate([
       { $match: {
          createdAt: { $gte: thirtyDaysAgo },
          status: {$in:['CONFIRMED', 'PREPARING', 'READY', 'DELIVERED']}
@@ -220,10 +267,22 @@ router.get('/top', auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), 
         }
       },
       { $unwind: "$product" },
+      {
+        $lookup: {
+          from: "shops",
+          localField: "product.shopId",
+          foreignField: "_id",
+          as: "shop"
+        }
+      },
+      { $unwind: "$shop" },
       { $project: {
           _id: 0,
           productId: "$_id",
           name: "$product.name",
+          stock: "$product.stock",
+          status: "$product.status",
+          shop: "$shop",
           price: "$product.price",
           images: "$product.images",
           totalSold: 1,
@@ -231,12 +290,30 @@ router.get('/top', auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), 
         } 
       }
     ]);
+
+    //filter out products that are not active
+     topProducts = topProducts.filter(p => p.status === 'ACTIVE' && p.shop.status === 'ACTIVE');    
     res.status(200).json(topProducts);
   }catch (error) {
     res.status(500).json({ error: 'Failed to fetch top products', details: error.message });
   }
 }
 );
+
+router.get('/:id', auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), async (req, res) => {
+    try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ error: 'Invalid product ID' });
+        }
+        const product = await Product.findById(req.params.id).populate('shopId', 'name').populate('categoryId', 'name');
+        if (!product) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+        res.status(200).json(product);
+    }catch (error) {
+        res.status(500).json({ error: 'Failed to fetch product', details: error.message });
+    }
+});
 
 // Get products with lower stock for a shop ✅
 router.get('/low-stock/shop/:shopId', auth, requireRole('SHOP'), requireOwnerShop(), async (req, res) => {

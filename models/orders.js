@@ -8,9 +8,11 @@ const orderSchema = new mongoose.Schema({
         productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
         qty: { type: Number, required: true },
         priceSnapshot: { type: Number },
-        path: [{ type: String }]
+        name: { type: String },
+        path: { type: String }
     }],
     total: { type: Number, required: true },
+    paymentMethod: { type: String, required: true },
     revenue: { type: Number, required: true },
     status: { type: String, enum: ['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'DELIVERED', 'CANCELLED'], default: 'PENDING' },
     address: { type: String, required: true },
