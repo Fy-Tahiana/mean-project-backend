@@ -101,28 +101,28 @@ router.get('/', async (req, res) => {
     }
 });
 
-// GET ALL Shops with optional filters (category, status) and search
-// Usage example : 
-// GET /api/v1/shops/all?status=ACTIVE&categoryId=12345&q=coffee&page=1&limit=10
-const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Get total number of shops
+router.get('/KPIs', auth, requireRole('ADMIN'), async (req, res) => {
+    try {
+        const [ totalShops, totalActiveShops, totalPendingShops, totalRejectedShops, totalSuspendedShops ] = await Promise.all([
+            Shop.countDocuments(),
+            Shop.countDocuments({ status: 'ACTIVE'}),
+            Shop.countDocuments( { status: 'PENDING' }),
+            Shop.countDocuments({ status: 'REJECTED' }),
+            Shop.countDocuments({ status: 'SUSPENDED' })
+        ]);
 
-router.get('/all', auth, requireRole('ADMIN'), async (req, res) => {
-  try {
-    const filters = {};
-    const sortObj = {};
-
-    // status filter (optional: validate allowed statuses)
-    if (typeof req.query.status === 'string' && req.query.status.trim()) {
-      filters.status = req.query.status.trim().toUpperCase();
+        return res.status(200).json({
+            totalShops,
+            totalActiveShops,
+            totalPendingShops,
+            totalRejectedShops,
+            totalSuspendedShops
+        });
     }
-
-    // category filter
-    if (typeof req.query.categoryId === 'string' && req.query.categoryId.trim()) {
-      const categoryId = req.query.categoryId.trim();
-      if (!mongoose.isValidObjectId(categoryId)) {
-        return res.status(400).json({ error: 'Invalid categoryId' });
-      }
-      filters.categoryId = categoryId;
+    catch (err)
+    {
+        res.status(500).json({ error: 'Failed to fetch total number of shops', details: err.message});
     }
 
     // search
