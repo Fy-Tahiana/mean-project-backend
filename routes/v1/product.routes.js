@@ -5,10 +5,12 @@ const router = express.Router();
 const Shop = require('../../models/shops');
 const Category = require('../../models/categories');
 const requireOwner = require('../../middlewares/requireOwner');
+const requireOwnerShop = require('../../middlewares/requireOwnerShop');
 
 module.exports = router;
 const mongoose = require('mongoose');
 const Product = require('../../models/products');
+const Order = require('../../models/orders');
 
 // CREATE Product ✅
 
@@ -115,11 +117,12 @@ router.delete('/:id', auth, requireRole('SHOP'), requireOwner(), async (req, res
 
 
 //get all product by query products?status=active&categoryId=&shopId=&q=&min=&max=&sort=&page=
-router.get('/',auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), async (req, res) => {
+router.get('/', async (req, res) => {
     try {
         const filter = {};
         let sortObj = {};
         filter.status = 'ACTIVE';
+        filter.shopId = { $in: await Shop.find({ status: 'ACTIVE' }).distinct('_id') }; // only products from active shops
         if (req.query.status) {
             filter.status = req.query.status.toUpperCase();
         }
@@ -164,7 +167,7 @@ router.get('/',auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), asyn
 
         //fetch products based on filter
 
-        const products = await Product.find(filter).sort(sortObj).skip(skip).limit(limit);
+        const products = await Product.find(filter).sort(sortObj).skip(skip).limit(limit).populate('shopId', 'name status').populate('categoryId', 'name');
         //return total pages
         const totalProducts = await Product.countDocuments(filter);
         const totalPages = Math.ceil(totalProducts / limit);
@@ -174,18 +177,111 @@ router.get('/',auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), asyn
     }
 });
 
+router.get('/top', async (req, res) => {
+  try {
+
+    //find top 5 products based on total sales (quantity sold) in the last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    let topProducts = await Order.aggregate([
+      { $match: {
+         createdAt: { $gte: thirtyDaysAgo },
+         status: {$in:['CONFIRMED', 'PREPARING', 'READY', 'DELIVERED']}
+        } 
+      },
+      { $unwind: "$items" },
+      { $group: { _id: "$items.productId", 
+        totalSold: { $sum: "$items.qty" },
+        totalRevenue: { $sum: { $multiply: ["$items.qty", "$items.priceSnapshot"] } }
+        } 
+      },
+      { $sort: { totalSold: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: "products",
+          localField: "_id",
+          foreignField: "_id",
+          as: "product"
+        }
+      },
+      { $unwind: "$product" },
+      {
+        $lookup: {
+          from: "shops",
+          localField: "product.shopId",
+          foreignField: "_id",
+          as: "shop"
+        }
+      },
+      { $unwind: "$shop" },
+      { $project: {
+          _id: 0,
+          productId: "$_id",
+          name: "$product.name",
+          stock: "$product.stock",
+          status: "$product.status",
+          shop: "$shop",
+          price: "$product.price",
+          images: "$product.images",
+          totalSold: 1,
+          totalRevenue: 1
+        } 
+      }
+    ]);
+
+    //filter out products that are not active
+     topProducts = topProducts.filter(p => p.status === 'ACTIVE' && p.shop.status === 'ACTIVE');    
+    res.status(200).json(topProducts);
+  }catch (error) {
+    res.status(500).json({ error: 'Failed to fetch top products', details: error.message });
+  }
+}
+);
+
 router.get('/:id', auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), async (req, res) => {
     try {
         if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
             return res.status(400).json({ error: 'Invalid product ID' });
         }
-        const product = await Product.findById(req.params.id);
+        const product = await Product.findById(req.params.id).populate('shopId', 'name').populate('categoryId', 'name');
         if (!product) {
             return res.status(404).json({ error: 'Product not found' });
         }
         res.status(200).json(product);
     }catch (error) {
         res.status(500).json({ error: 'Failed to fetch product', details: error.message });
+    }
+});
+
+// Get products with lower stock for a shop ✅
+router.get('/low-stock/shop/:shopId', auth, requireRole('SHOP'), requireOwnerShop(), async (req, res) => {
+  try {
+    const shopId = req.params.shopId;
+    
+    const lowStockProducts = await Product.find({
+        shopId: new mongoose.Types.ObjectId(shopId),
+        stock: { $lte: 5 },
+        status: 'ACTIVE'
+    }).sort({ stock: 1 });
+
+    // If no low stock products, return the lowest stock product instead
+    if (lowStockProducts.length === 0) {
+      const lowestStockProduct = await Product.findOne({ shopId, status: 'ACTIVE' }).sort({ stock: 1 });
+
+      if (!lowestStockProduct) {
+        return res.status(404).json({ message: "No products found for this shop" });
+      }
+
+      lowStockProducts.push(lowestStockProduct);
+    }
+
+    res.json({
+        count: lowStockProducts.length,
+        products: lowStockProducts
+        });
+    } catch (err) {    console.error("Error fetching low stock products:", err);
+        res.status(500).json({ message: err.message });
     }
 });
 

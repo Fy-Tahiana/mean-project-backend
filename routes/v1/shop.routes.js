@@ -7,7 +7,10 @@ const upload = require('../../middlewares/upload');
 const auth = require('../../middlewares/auth');
 const requireRole = require('../../middlewares/requirerole');
 const Shop = require('../../models/shops');
-
+const requireOwner = require('../../middlewares/requireOwner');
+const requireOwnerShop = require('../../middlewares/requireOwnerShop');
+const Product = require('../../models/products');
+const Order = require('../../models/orders');
 
 //create a new shop
 router.post('/', auth, requireRole('SHOP'), upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), 
@@ -166,6 +169,31 @@ router.get('/all', auth, requireRole('ADMIN'), async (req, res) => {
     console.error("Error fetching shops:", err);
     res.status(500).json({ error: 'Failed to fetch shops', details: err.message });
   }
+
+});
+// Get total number of shops
+router.get('/KPIs', auth, requireRole('ADMIN'), async (req, res) => {
+    try {
+        const [ totalShops, totalActiveShops, totalPendingShops, totalRejectedShops, totalSuspendedShops ] = await Promise.all([
+            Shop.countDocuments(),
+            Shop.countDocuments({ status: 'ACTIVE'}),
+            Shop.countDocuments( { status: 'PENDING' }),
+            Shop.countDocuments({ status: 'REJECTED' }),
+            Shop.countDocuments({ status: 'SUSPENDED' })
+        ]);
+
+        return res.status(200).json({
+            totalShops,
+            totalActiveShops,
+            totalPendingShops,
+            totalRejectedShops,
+            totalSuspendedShops
+        });
+    }
+    catch (err)
+    {
+        res.status(500).json({ error: 'Failed to fetch total number of shops', details: err.message});
+    }
 });
 
 //get shop by id
@@ -213,6 +241,154 @@ router.patch('/:id/status', auth, requireRole('ADMIN'), async (req,res) => {
     } catch (err) {
         console.error("Error updating shop status", err);
         res.status(500).json({ error: 'Failed to update shop status', details: err.message });
+    }
+});
+
+// Get top 5 products by quantity sold for a shop ✅
+router.get('/:shopId/top-products-by-revenue', auth, requireRole('SHOP'), requireOwnerShop(), async (req, res) => {
+    try {
+        const shopId = req.params.shopId;
+        console.log('Fetching top products by revenue for shopId:', shopId);
+
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const topProducts = await Order.aggregate([
+            { $match: {
+                shopId: new mongoose.Types.ObjectId(shopId),
+                createdAt: { $gte: thirtyDaysAgo },
+                status: {$in:['CONFIRMED', 'PREPARING', 'READY', 'DELIVERED']}
+                }
+            },
+            { $unwind: "$items" },
+            { $group:{
+                _id: "$items.productId",
+                totalQty: { $sum: "$items.qty" },
+                totalRevenue: { $sum: { $multiply: ["$items.qty", "$items.priceSnapshot"] } } // also calculate total revenue for this product
+                } 
+            },
+            { $sort: { totalRevenue: -1 } }, //order by revenue : descending
+            { $limit: 5 },
+            {
+                $lookup: {
+                from: "products",
+                localField: "_id",
+                foreignField: "_id",
+                as: "product"
+                }
+            },
+            { $unwind: "$product" },
+            { $project: {
+                _id: 0,
+                productId: "$_id",
+                name: "$product.name",
+                price: "$product.price",
+                images: "$product.images",
+                totalQty: 1,
+                totalRevenue: 1
+                } 
+            }
+        ]);
+        res.json({ topProducts });
+        console.log('Top products by quantity:', topProducts);
+
+    } catch (err) {
+        console.error("Error fetching top products by quantity:", err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+
+// Get top 5 customers by revenue for a shop ✅
+router.get('/:shopId/top-customers', auth, requireRole('SHOP'), requireOwnerShop(), async (req, res) => {
+    try {
+        const shopId = req.params.shopId;
+        console.log('Fetching top customers by revenue for shopId:', shopId);
+
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const topCustomers = await Order.aggregate([
+            { $match: {
+                shopId: new mongoose.Types.ObjectId(shopId),
+                createdAt: { $gte: thirtyDaysAgo },
+                status: {$in:['CONFIRMED', 'PREPARING', 'READY', 'DELIVERED']}
+                }
+            },
+            { $unwind: "$items" },
+            { $group:{
+                _id: "$buyerId",
+                totalQty: { $sum: "$items.qty" },
+                totalRevenue: { $sum: { $multiply: ["$items.qty", "$items.priceSnapshot"] } } // also calculate total revenue for this product
+                } 
+            },
+            { $sort: { totalRevenue: -1 } }, //order by revenue : descending
+            { $limit: 5 },
+            {
+                $lookup: {
+                from: "users",
+                localField: "_id",
+                foreignField: "_id",
+                as: "customer"
+                }
+            },
+            { $unwind: "$customer" },
+            { $project: {
+                _id: 0,
+                customerId: "$_id",
+                name: "$customer.name",
+                email: "$customer.email",
+                totalSold: 1,
+                totalRevenue: 1
+                } 
+            }
+        ]);
+        res.json({ topCustomers });
+        console.log('Top customers by revenue:', topCustomers);
+
+    } catch (err) {
+        console.error("Error fetching top customers:", err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+
+// Get total revenue for a shop with filter by month and year ✅
+router.get('/:shopId/total-revenue', auth, requireRole('SHOP'), requireOwnerShop(), async (req, res) => {
+    try {
+        const shopId = req.params.shopId;
+        const month = parseInt(req.query.month);
+        const year = parseInt(req.query.year);
+        console.log(year, month);
+
+        const match = { shopId: new mongoose.Types.ObjectId(shopId) };
+        if (month && year) {
+            const startDate = new Date(year, month - 1, 1);
+            const endDate = new Date(year, month, 1);
+            match.createdAt = { $gte: startDate, $lt: endDate };
+        }
+         else if (month && !year) {
+            console.log('Filtering revenue by month:', month);  
+            const currentYear = new Date().getFullYear();
+            const startDate = new Date(currentYear, month - 1, 1);
+            const endDate = new Date(currentYear, month, 1);
+            match.createdAt = { $gte: startDate, $lt: endDate };
+
+        }
+         else if (year) {
+            const startDate = new Date(year, 0, 1);
+            const endDate = new Date(year + 1, 0, 1);
+            match.createdAt = { $gte: startDate, $lt: endDate };
+        }
+        const revenueData = await Order.aggregate([
+            { $match: match },
+            { $group: { _id: null, totalRevenue: { $sum: "$revenue" } } }
+        ]);
+        const totalRevenue = revenueData[0] ? revenueData[0].totalRevenue : 0;
+        res.json({ totalRevenue });
+    } catch (err) {
+        console.error("Error fetching revenue:", err);
+        res.status(500).json({ message: err.message });
     }
 });
 

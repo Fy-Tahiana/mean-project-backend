@@ -10,7 +10,8 @@ const orderSchema = new mongoose.Schema({
         priceSnapshot: { type: Number },
         path: [{ type: String }]
     }],
-    total: { type: Number, required: true },  
+    total: { type: Number, required: true },
+    revenue: { type: Number, required: true },
     status: { type: String, enum: ['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'DELIVERED', 'CANCELLED'], default: 'PENDING' },
     address: { type: String, required: true },
     phone: { type: String, required: true },
