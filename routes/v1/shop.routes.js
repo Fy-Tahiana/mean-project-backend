@@ -72,20 +72,6 @@ router.post('/', auth, requireRole('SHOP'), upload.fields([{ name: 'logo', maxCo
     }
 });
 
-//get shop by id
-router.get('/:id', async (req, res) => {
-    try {
-        //convert id to ObjectId
-        const shop = await Shop.findById(new mongoose.Types.ObjectId(req.params.id));
-        if (!shop) {
-            return res.status(404).json({ error: 'Shop not found' });
-        }
-        res.status(200).json({ shop });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch shop', details: error.message });
-    }
-});
-
 //get shops with query ?status=active&categoryId=&q=&page=
 router.get('/', async (req, res) => {
     try {
@@ -109,6 +95,124 @@ router.get('/', async (req, res) => {
 
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch shops', details: error.message });
+    }
+});
+
+// GET ALL Shops with optional filters (category, status) and search
+// Usage example : 
+// GET /api/v1/shops/all?status=ACTIVE&categoryId=12345&q=coffee&page=1&limit=10
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+router.get('/all', auth, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const filters = {};
+    const sortObj = {};
+
+    // status filter (optional: validate allowed statuses)
+    if (typeof req.query.status === 'string' && req.query.status.trim()) {
+      filters.status = req.query.status.trim().toUpperCase();
+    }
+
+    // category filter
+    if (typeof req.query.categoryId === 'string' && req.query.categoryId.trim()) {
+      const categoryId = req.query.categoryId.trim();
+      if (!mongoose.isValidObjectId(categoryId)) {
+        return res.status(400).json({ error: 'Invalid categoryId' });
+      }
+      filters.categoryId = categoryId;
+    }
+
+    // search
+    if (typeof req.query.q === 'string' && req.query.q.trim()) {
+      const q = req.query.q.trim().slice(0, 100); // basic guard
+      const words = q.split(/\s+/).map(escapeRegex);
+
+      // "all words in any order" via lookaheads (escaped)
+      const regex = words.map(w => `(?=.*${w})`).join('') + '.*';
+
+      filters.$or = [
+        { name: { $regex: regex, $options: 'i' } },
+        { description: { $regex: regex, $options: 'i' } }
+      ];
+    }
+
+    // sorting
+    const s = (req.query.sort || '').toString().toLowerCase();
+    if (s === 'name_asc') sortObj.name = 1;
+    else if (s === 'name_desc') sortObj.name = -1;
+    else if (s === 'created_asc') sortObj.createdAt = 1;
+    else sortObj.createdAt = -1; // default newest
+
+    // stable tie-breaker
+    sortObj._id = -1;
+
+    // pagination (bounded)
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
+    const skip = (page - 1) * limit;
+
+    const [shops, totalShops] = await Promise.all([
+      Shop.find(filters).sort(sortObj).skip(skip).limit(limit).lean(),
+      Shop.countDocuments(filters),
+    ]);
+
+    const totalPages = Math.ceil(totalShops / limit);
+
+    res.status(200).json({
+      shops,
+      pagination: { page, limit, totalShops, totalPages }
+    });
+  } catch (err) {
+    console.error("Error fetching shops:", err);
+    res.status(500).json({ error: 'Failed to fetch shops', details: err.message });
+  }
+});
+
+//get shop by id
+router.get('/:id', async (req, res) => {
+    try {
+        //convert id to ObjectId
+        const shop = await Shop.findById(new mongoose.Types.ObjectId(req.params.id));
+        if (!shop) {
+            return res.status(404).json({ error: 'Shop not found' });
+        }
+        res.status(200).json({ shop });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch shop', details: error.message });
+    }
+});
+
+// UPDATE Shop status
+router.patch('/:id/status', auth, requireRole('ADMIN'), async (req,res) => {
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) 
+        {
+            return res.status(400).json({ error: 'Invalid shop id' });
+        }
+
+        const status = req.body?.status?.toUpperCase();
+
+        if (!['ACTIVE', 'REJECTED', 'SUSPENDED'].includes(status))
+        {
+            return res.status(400).json({ error: 'Invalid status value' });
+        }
+
+        // Find shop
+        const shop = await Shop.findById(req.params.id);
+        if(!shop)
+        {
+            return res.status(404).json({ error: 'User not found'});
+        }
+
+        // Update status
+        shop.status = status;
+        await shop.save();
+
+        return res.status(200).json({ message: 'Shop status updated', shop });
+
+    } catch (err) {
+        console.error("Error updating shop status", err);
+        res.status(500).json({ error: 'Failed to update shop status', details: err.message });
     }
 });
 
