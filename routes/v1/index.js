@@ -7,7 +7,6 @@ router.use('/v1/health', require('./health.routes'));
 router.use('/v1/shops', require('./shop.routes'));
 router.use('/v1/products', require('./product.routes'));
 router.use('/v1/categories', require('./categorie.routes'));
-router.use('/v1/orders', require('./order.routes'));
 
 
 module.exports = router;
