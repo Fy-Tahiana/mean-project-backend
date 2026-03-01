@@ -5,12 +5,15 @@ const express = require('express');
 const router = express.Router();
 module.exports = router;
 const mongoose = require('mongoose');
+const requireOwnerShop = require('../../middlewares/requireOwnerShop');
 
 const Order = require('../../models/orders');
 const Shop = require('../../models/shops');
 const Category = require('../../models/categories');
 const Product = require('../../models/products');
 const verifyProduct = require('../../middlewares/verifyProduct');
+const Fees = require('../../models/fees');
+
 
 // Create Order ✅
 router.post('/checkout', auth, requireRole('BUYER'), verifyProduct, async (req, res) => {
@@ -32,65 +35,75 @@ router.post('/checkout', auth, requireRole('BUYER'), verifyProduct, async (req, 
 
     const ordersCreated = [];
 
+    // Find fee with status ACTIVE
+    const fee = await Fees.findOne({ status: 'ACTIVE' });
+    // console.log("Active fee:", fee);
+
     // Create one order per shop
     for (const shopId of Object.keys(grouped)) {
       const shopItems = grouped[shopId];
-
       if (!shopItems || shopItems.length === 0) continue;
 
-      let Path = [];
-      let Snapshot = 0;
-
-      // Calculate total for this shop
       let total = 0;
-      let product = null;
 
-      for (let i = 0; i < shopItems.length; i++) {
-        const item = shopItems[i];
-        product = await Product.findById(item.productId);
+      // Build order items with correct snapshot per product
+      const orderItems = [];
+
+      for (const item of shopItems) {
+        const product = await Product.findById(item.productId);
+        if (!product) continue; // or throw error
 
         const qty = Number(item.qty) || 0;
         const price = Number(product.price) || 0;
 
-        // console.log("Running total:", qty, "x", price, "=", qty * price);
-
-        Snapshot = product.price;
-        Path = product.images?.[0] || null;
-
         total += price * qty;
+        console.log(`Adding to order: productId=${item.productId}, qty=${qty}, price=${price}, subtotal=${price * qty}`);
+
+        orderItems.push({
+          productId: item.productId,
+          qty,
+          priceSnapshot: price,                 // snapshot for THIS product
+          path: product.images?.[0] || null     // image for THIS product
+        });
       }
 
-      // total = Math.round(total * 100) / 100;
-      console.log("Final total:", total);
+      // revenue calc (kept your logic)
+      let revenue = 0;
+      if (fee) {
+        if (total > fee.threshold) {
+          revenue += total * (1 - fee.rate / 100);
+          console.log(`Applying percentage fee: total=${total}, rate=${fee.rate}%, revenue=${revenue}`);
+        } else {
+          revenue += total - fee.fixed;
+          console.log(`Applying fixed fee: total=${total}, fixed=${fee.fixed}, revenue=${revenue}`);
+        }
+      }
 
-      // Create order
+      console.log(`Creating order for shopId=${shopId}: total=${total}, revenue=${revenue}`);
+
       const order = await Order.create({
         buyerId: req.user.id,
         shopId,
         address: req.body.buyer.address,
         phone: req.body.buyer.phone,
-        items: shopItems.map(i => ({
-          productId: i.productId,
-          qty: i.qty,
-          priceSnapshot: Snapshot,
-          path : Path
-        })),
-        total
+        items: orderItems,
+        total,
+        revenue
       });
 
       ordersCreated.push(order);
-      await order.save();
 
-      // Update stock for each product in the order
-      product.stock = Math.max(0, product.stock - shopItems[0].qty);
-      if(product.stock === 0) {
-        product.status = 'OUT_OF_STOCK';
+      // Update stock ONLY for products in this shop order
+      for (const item of shopItems) {
+        await Product.findByIdAndUpdate(
+          item.productId,
+          { $inc: { stock: -Number(item.qty) } },
+          { new: true }
+        );
       }
-      await product.save();
-
     }
 
-    res.status(201).json({
+      res.status(201).json({
       message: "Orders created successfully",
       orders: ordersCreated
     });
@@ -237,6 +250,35 @@ router.patch('/:id', auth, requireRole('SHOP', 'BUYER'), async (req, res) => {
     console.error("Error updating order status:", err);
     res.status(500).json({ message: err.message });
   }
+});
+
+
+// Get orders with specific status for a shop ✅
+
+router.get('/shop/:shopId', auth, requireRole('SHOP'), requireOwnerShop(), async (req, res) => {
+    try {
+        const shopId = req.params.shopId;
+        console.log('Fetching orders for shopId:', shopId);
+        const statusFilter = req.query.status ? req.query.status.toUpperCase() : null;
+
+        if (!statusFilter) {
+            return res.status(400).json({ error: 'Status query parameter is required' });
+        }
+
+        console.log('Status filter:', statusFilter);
+
+        const orders = await Order.countDocuments({
+            shopId: new mongoose.Types.ObjectId(shopId),
+            status: statusFilter
+        });
+
+        res.json({
+            orders
+        });
+    } catch (err) {
+        console.error("Error fetching orders:", err);
+        res.status(500).json({ message: err.message });
+    }
 });
 
 
