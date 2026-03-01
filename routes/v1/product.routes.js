@@ -166,13 +166,28 @@ router.get('/',auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), asyn
 
         //fetch products based on filter
 
-        const products = await Product.find(filter).sort(sortObj).skip(skip).limit(limit).populate('shopId', 'name').populate('categoryId', 'name');
+        const products = await Product.find(filter).sort(sortObj).skip(skip).limit(limit);
         //return total pages
         const totalProducts = await Product.countDocuments(filter);
         const totalPages = Math.ceil(totalProducts / limit);
         res.status(200).json({ products, totalPages });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch products', details: error.message });
+    }
+});
+
+router.get('/:id', auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), async (req, res) => {
+    try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ error: 'Invalid product ID' });
+        }
+        const product = await Product.findById(req.params.id);
+        if (!product) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+        res.status(200).json(product);
+    }catch (error) {
+        res.status(500).json({ error: 'Failed to fetch product', details: error.message });
     }
 });
 
@@ -222,21 +237,6 @@ router.get('/top', auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), 
   }
 }
 );
-
-router.get('/:id', auth, requireRole('SHOP', 'BUYER', 'ADMIN'), requireOwner(), async (req, res) => {
-    try {
-        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-            return res.status(400).json({ error: 'Invalid product ID' });
-        }
-        const product = await Product.findById(req.params.id).populate('shopId', 'name').populate('categoryId', 'name');
-        if (!product) {
-            return res.status(404).json({ error: 'Product not found' });
-        }
-        res.status(200).json(product);
-    }catch (error) {
-        res.status(500).json({ error: 'Failed to fetch product', details: error.message });
-    }
-});
 
 // Get products with lower stock for a shop ✅
 router.get('/low-stock/shop/:shopId', auth, requireRole('SHOP'), requireOwnerShop(), async (req, res) => {
