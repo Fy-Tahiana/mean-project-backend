@@ -1,9 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
-const auth = require('../../middlewares/auth');
 
-const User = require('../../models/users');
+const User = require('../../models/Users');
 const {signAccessToken, verifyAccessToken} = require('../../utils/jwt');
 
 router.post('/login', (req, res) => {
@@ -13,37 +12,27 @@ router.post('/login', (req, res) => {
             if (!user) {
                 return res.status(404).json({ error: 'User not found' });
             }
-            if(!credentials.password) {
-                return res.status(400).json({ error: 'Password is required' });
-            }
-            const isMatch = await bcrypt.compare(credentials.password, user.password);
+            const isMatch = await bcrypt.compare(credentials.passwordHash, user.passwordHash);
             if (!isMatch) {
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
 
             //issue token
-            //fetch shops of the user if role is SHOP
-            let shops = [];
-            if (user.role.toUpperCase() === 'SHOP') {
-                shops = await require('../../models/shops').find({ ownerUserId: user._id }).select('_id').lean();
-                shops = shops.map(s => s._id.toString());
-            }
-            const accessToken = signAccessToken(user, shops);
+            const accessToken = signAccessToken(user);
     
         
             res.cookie('authorization', accessToken, {
                 httpOnly: true,
-                secure: false,
-                path: '/',
+                secure: true,
+                sameSite: 'Strict',
                 maxAge: 24 * 60 * 60 * 1000 // 1 day
             });
             res.status(200).json({ message: 'Login successful', 
-                                   user: { id: user._id, fullName: user.fullName, email: user.email, shops: shops }
+                                   user: { id: user._id, fullName: user.fullName, email: user.email }
              });
         });
 
     } catch (error) {
-        res.status(500).json({ error: 'Login failed', details: error.message });
         
     }
 });
@@ -60,12 +49,11 @@ router.post('/register', async (req, res) => {
         }
 
         //minimum password length check 6-8 characters
-        console.log('Validating password length:', req.body);
-        if (newUser.password.length < 8) {
-            return res.status(400).json({ error: 'Password must be at least 8 characters' });
+        if (newUser.passwordHash.length < 6 || newUser.passwordHash.length > 8) {
+            return res.status(400).json({ error: 'Password must be between 6 and 8 characters' });
         }
 
-        newUser.password = await bcrypt.hash(newUser.password, 10);
+        newUser.passwordHash = await bcrypt.hash(newUser.passwordHash, 10);
         await newUser.save();
     
         res.status(201).json({ message: 'User registered successfully' });
@@ -73,17 +61,9 @@ router.post('/register', async (req, res) => {
         if(error.code === 11000){
             return res.status(409).json({ error: 'Email already in use' });
         }
-        res.status(400).json({ error: 'Registration failed', details: error.message, trace: error.stack });
+        res.status(400).json({ error: 'Registration failed', details: error.message });
     }
    
   
-});
-
-router.get('/me', auth, async (req, res) => {
-    try {
-        return res.status(200).json({ user: { id: req.user.id, role: req.user.role } });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch user details', details: error.message });
-    }
 });
 module.exports = router;
