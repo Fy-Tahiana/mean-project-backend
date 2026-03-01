@@ -1,14 +1,24 @@
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const { v4: uuid } = require('uuid');
+
+const ensureDir = (dir) => {
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+};
 
 // Storage config
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     if (file.fieldname === 'logo') {
-      cb(null, 'uploads/shops/logos');
+      cb(null, ensureDir('uploads/shops/logos'));
     } else if (file.fieldname === 'cover') {
-      cb(null, 'uploads/shops/covers');
+      cb(null, ensureDir('uploads/shops/covers'));
+    } else if (file.fieldname === 'images') {
+      cb(null, ensureDir('uploads/products'));
+    } else {
+      cb(new Error(`Unsupported file field: ${file.fieldname}`));
     }
   },
   filename: (req, file, cb) => {

@@ -23,8 +23,12 @@ module.exports = () => {
     }
 
     // Check if the user is the owner of the shop. e;
-    if(!req.user.shops.includes(shopId.toString())){
-        return res.status(403).json({ error: 'Forbidden: not the owner of the shop' });
+    const isOwner = req.user.shops.some(
+    shop => shop._id.toString() === shopId.toString()
+    );
+
+    if (!isOwner) {
+    return res.status(403).json({ error: 'Forbidden: not the owner of the shop' });
     }
 
     next();
