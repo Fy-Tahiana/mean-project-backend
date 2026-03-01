@@ -79,19 +79,9 @@ router.post('/register', async (req, res) => {
   
 });
 
-router.post('/logout', auth, (req, res) => {
-    try {
-        res.clearCookie('authorization', { path: '/' });
-        res.status(200).json({ message: 'Logout successful' });
-    } catch (error) {
-        res.status(500).json({ error: 'Logout failed', details: error.message });
-    }
-});
-
 router.get('/me', auth, async (req, res) => {
     try {
-        console.log('Authenticated user:', req.user);
-        return res.status(200).json({ user: { id: req.user.id, role: req.user.role, fullName: req.user.fullName, shops: req.user.shops } });
+        return res.status(200).json({ user: { id: req.user.id, role: req.user.role } });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch user details', details: error.message });
     }
