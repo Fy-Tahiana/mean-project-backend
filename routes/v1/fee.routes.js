@@ -2,6 +2,7 @@ const auth = require('../../middlewares/auth');
 const requireRole = require('../../middlewares/requirerole');
 const express = require('express');
 const Fees = require('../../models/fees');
+const { getTopMonth, getTopYear, getTopShops, getCommissionsGraphAnnual, getCommissionsGraphMonthly } = require('../../services/feesLogs.service');
 const router = express.Router();
 const mongoose = require('mongoose');
 
@@ -297,7 +298,61 @@ router.get('/', auth, requireRole('ADMIN'), async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Error listing fees:', err);
+    console.error('Error listing fees: ', err);
     return res.status(500).json({ message: 'Failed to list fees', details: err.message });
+  }
+});
+
+// DASHBOARD Top year - Top Month - Top shops
+router.get('/dashboard', auth, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const topYear = await getTopYear();
+
+    const yearForTopMonth = topYear?.year ?? new Date().getUTCFullYear();
+
+    // tu peux aussi laisser le front envoyer ?limit=4
+    const limit = req.query.limit ?? 4;
+
+    const [topMonth, topShops] = await Promise.all([
+      getTopMonth(yearForTopMonth),
+      getTopShops(yearForTopMonth, limit)
+    ]);
+
+    return res.status(200).json({
+      topYear,
+      topMonth,
+      topShops
+    });
+  } catch (err) {
+    console.error('Error fetching dashboard Fees: ', err);
+    return res.status(500).json({
+      message: 'Failed to fetch Dashboard Fees',
+      details: err.message
+    });
+  }
+});
+
+router.get('/dashboard/fees-graph', auth, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const filter = String(req.query.filter || 'ANNUAL').toUpperCase();
+    const year = req.query.year || new Date().getUTCFullYear();
+
+    if (filter === 'ANNUAL') {
+      const graph = await getCommissionsGraphAnnual(year);
+      return res.status(200).json(graph);
+    }
+
+    if (filter === 'MONTHLY') {
+      const month = req.query.month; // required
+      if (!month) return res.status(400).json({ message: 'month is required for MONTHLY filter (1..12)' });
+
+      const graph = await getCommissionsGraphMonthly(year, month);
+      return res.status(200).json(graph);
+    }
+
+    return res.status(400).json({ message: "Invalid filter. Use ANNUAL or MONTHLY" });
+  } catch (err) {
+    console.error('Error fetching commissions graph:', err);
+    return res.status(500).json({ message: 'Failed to fetch commissions graph', details: err.message });
   }
 });

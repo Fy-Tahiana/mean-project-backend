@@ -12,7 +12,7 @@ router.get('/', auth, requireRole('ADMIN'),  async(req, res) => {
 
     try {
         const filters = {};
-        let sortObj = {};
+        let sortObj = { createdAt: -1 };
         
         // role filter
         if (req.query.role)
@@ -55,11 +55,26 @@ router.get('/', auth, requireRole('ADMIN'),  async(req, res) => {
         const skip = (page - 1) * limit;
 
         // fetch users
-        const users = await User.find(filters).sort(sortObj).skip(skip).limit(limit).lean();
+        const users = await User.find(filters)
+            .select('_id fullName email phone role status createdAt')
+            .sort(sortObj)
+            .skip(skip)
+            .limit(limit)
+            .lean();
         const totalUsers = await User.countDocuments(filters);
         const totalPages = Math.ceil(totalUsers / limit);
 
-        res.status(200).json({ users, totalPages });
+        const safeUsers = users.map((user) => ({
+            id: user._id?.toString(),
+            fullName: user.fullName,
+            email: user.email,
+            phone: user.phone ?? '',
+            role: user.role,
+            status: user.status,
+            createdAt: user.createdAt
+        }));
+
+        res.status(200).json({ users: safeUsers, totalPages });
 
     } catch (err) {
         console.error("Error fetching users:", err);

@@ -6,6 +6,22 @@ const auth = require('../../middlewares/auth');
 const User = require('../../models/users');
 const {signAccessToken, verifyAccessToken} = require('../../utils/jwt');
 
+function getAuthCookieOptions() {
+    const options = {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'None',
+        path: '/',
+        maxAge: 24 * 60 * 60 * 1000
+    };
+
+    if (process.env.COOKIE_DOMAIN) {
+        options.domain = process.env.COOKIE_DOMAIN;
+    }
+
+    return options;
+}
+
 router.post('/login', (req, res) => {
     try {
         const credentials = req.body;
@@ -38,12 +54,7 @@ router.post('/login', (req, res) => {
             const accessToken = signAccessToken(user, shops);
     
         
-            res.cookie('authorization', accessToken, {
-                httpOnly: true,
-                secure: false,
-                path: '/',
-                maxAge: 24 * 60 * 60 * 1000 // 1 day
-            });
+            res.cookie('authorization', accessToken, getAuthCookieOptions());
             res.status(200).json({ message: 'Login successful', 
                                    user: { id: user._id, fullName: user.fullName, email: user.email, shops: shops }
              });
@@ -86,9 +97,10 @@ router.post('/register', async (req, res) => {
   
 });
 
-router.post('/logout', auth, (req, res) => {
+router.post('/logout', (req, res) => {
     try {
-        res.clearCookie('authorization', { path: '/' });
+        const { maxAge, ...clearCookieOptions } = getAuthCookieOptions();
+        res.clearCookie('authorization', clearCookieOptions);
         res.status(200).json({ message: 'Logout successful' });
     } catch (error) {
         res.status(500).json({ error: 'Logout failed', details: error.message });

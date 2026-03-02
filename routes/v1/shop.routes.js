@@ -306,6 +306,66 @@ router.get('/:shopId/top-products-by-revenue', auth, requireRole('SHOP'), requir
 
 
 // Get top 5 customers by revenue for a shop ✅
+router.get('/:shopId/customers', auth, requireRole('SHOP'), requireOwnerShop(), async (req, res) => {
+    try {
+        const { shopId } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(shopId)) {
+            return res.status(400).json({ message: 'Invalid shopId' });
+        }
+
+        const customers = await Order.aggregate([
+            {
+                $match: {
+                    shopId: new mongoose.Types.ObjectId(shopId),
+                    status: { $ne: 'CANCELLED' }
+                }
+            },
+            { $sort: { createdAt: -1 } },
+            {
+                $group: {
+                    _id: '$buyerId',
+                    lastOrderDate: { $first: '$createdAt' },
+                    address: { $first: '$address' },
+                    phoneFromOrder: { $first: '$phone' },
+                    totalOrders: { $sum: 1 },
+                    totalSpent: { $sum: '$total' }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: '_id',
+                    foreignField: '_id',
+                    as: 'customer'
+                }
+            },
+            { $unwind: '$customer' },
+            {
+                $project: {
+                    _id: 0,
+                    id: { $toString: '$_id' },
+                    fullName: '$customer.fullName',
+                    email: '$customer.email',
+                    phone: {
+                        $ifNull: ['$customer.phone', '$phoneFromOrder']
+                    },
+                    address: { $ifNull: ['$address', ''] },
+                    lastOrderDate: 1,
+                    totalOrders: 1,
+                    totalSpent: 1
+                }
+            },
+            { $sort: { lastOrderDate: -1 } }
+        ]);
+
+        res.status(200).json({ customers });
+    } catch (err) {
+        console.error('Error fetching shop customers:', err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
 router.get('/:shopId/top-customers', auth, requireRole('SHOP'), requireOwnerShop(), async (req, res) => {
     try {
         const shopId = req.params.shopId;

@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors({
-  origin: "http://localhost:4200",
+  origin: "https://global-market-mada.netlify.app",
   credentials: true,
 }));
 app.use(express.json());
