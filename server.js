@@ -8,32 +8,31 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(cors({
-  origin: "https://m1p13mean-2217-2231.netlify.app",
+const corsOptions = {
+  origin: 'https://m1p13mean-2217-2231.netlify.app',
   credentials: true,
-}));
-app.options('*', cors());
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+// Middleware
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use(express.json());
+app.use(cookieParser());
 
-// MongoDB connection
-mongoose.connect(process.env.MONGO_URI).
-    then(() => console.log('MongoDB connected'))
-    .catch(err => console.log(err));
-
-// Routes
 app.use((req, res, next) => {
   console.log(`Incoming request: ${req.method} ${req.url}`);
   next();
 });
 
+app.use('/uploads', express.static('uploads'));
 app.use('/', routes);
 
-app.use(cookieParser());
-
-app.use("/uploads", express.static("uploads"));
-
-
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => console.log(err));
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
