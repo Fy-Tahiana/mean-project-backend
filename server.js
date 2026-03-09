@@ -13,6 +13,8 @@ app.use(cors({
   origin: "https://m1p13mean-2217-2231.netlify.app",
   credentials: true,
 }));
+app.options('*', cors());
+
 app.use(express.json());
 
 // MongoDB connection
