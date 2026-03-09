@@ -8,55 +8,30 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// CORS
-const allowedOrigins = [
-  'https://m1p13mean-2217-2231.netlify.app',
-  'http://localhost:4200'
-];
-
+// Middleware
 app.use(cors({
-  origin: function (origin, callback) {
-    // allow requests with no origin like Postman/mobile apps
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    } else {
-      return callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: "https://m1p13mean-2217-2231.netlify.app",
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
-app.options('*', cors());
-
-// Middlewares
 app.use(express.json());
-app.use(cookieParser());
 
-// Logs
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URI).
+    then(() => console.log('MongoDB connected'))
+    .catch(err => console.log(err));
+
+// Routes
 app.use((req, res, next) => {
   console.log(`Incoming request: ${req.method} ${req.url}`);
   next();
 });
 
-// Static files
-app.use('/uploads', express.static('uploads'));
-
-// Routes
 app.use('/', routes);
 
-// MongoDB connection
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log('MongoDB connected');
+app.use(cookieParser());
 
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
-  })
-  .catch(err => {
-    console.error('MongoDB connection error:', err);
-  });
+app.use("/uploads", express.static("uploads"));
+
+
+
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
